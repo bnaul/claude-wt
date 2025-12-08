@@ -55,7 +55,7 @@ This is a Python CLI tool built with:
 
 ### How It Works
 
-1. **Branch Management**: Creates branches with pattern `claude-wt-{timestamp}` or `claude-wt-{custom-name}`
+1. **Branch Management**: Creates branches with pattern `cwt-{timestamp}` or `cwt-{custom-name}`
 2. **Worktree Creation**: Sets up isolated directories in `.claude-wt/worktrees/`
 3. **Claude Integration**: Launches Claude CLI with `--add-dir` pointing to the main repo
 4. **Session Tracking**: Uses branch names as session identifiers for resume/clean operations
