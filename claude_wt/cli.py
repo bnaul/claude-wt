@@ -1,3 +1,5 @@
+import json
+import re
 import shutil
 import subprocess
 from datetime import datetime
@@ -107,6 +109,75 @@ def sync_with_remote(repo_root: Path, source_branch: str) -> None:
                 console.print("[yellow]   Note: Your branch has diverged from the remote[/yellow]")
 
 
+def slugify(text: str, max_length: int = 40) -> str:
+    """Convert text to a URL-friendly slug.
+
+    Args:
+        text: Text to slugify
+        max_length: Maximum length of the slug
+
+    Returns:
+        Slugified text
+    """
+    # Convert to lowercase
+    slug = text.lower()
+    # Replace spaces and special chars with hyphens
+    slug = re.sub(r'[^\w\s-]', '', slug)
+    slug = re.sub(r'[\s_]+', '-', slug)
+    slug = re.sub(r'-+', '-', slug)
+    # Trim hyphens from ends
+    slug = slug.strip('-')
+    # Truncate to max length
+    if len(slug) > max_length:
+        slug = slug[:max_length].rstrip('-')
+    return slug
+
+
+def fetch_github_issue(issue_number: str) -> dict[str, str]:
+    """Fetch issue details from GitHub using gh CLI.
+
+    Args:
+        issue_number: The issue number to fetch
+
+    Returns:
+        Dict with 'title' and 'body' keys
+
+    Raises:
+        SystemExit: If gh CLI is not found or issue doesn't exist
+    """
+    # Check if gh CLI is installed
+    if not shutil.which("gh"):
+        console.print("[red]Error: GitHub CLI (gh) is not installed[/red]")
+        console.print(
+            "[yellow]Install it from: https://cli.github.com[/yellow]"
+        )
+        raise SystemExit(1)
+
+    # Fetch issue details
+    try:
+        result = subprocess.run(
+            ["gh", "issue", "view", issue_number, "--json", "title,body"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        issue_data = json.loads(result.stdout)
+        return {
+            "title": issue_data.get("title", ""),
+            "body": issue_data.get("body", ""),
+        }
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Error: Could not fetch issue #{issue_number}[/red]")
+        if "not found" in e.stderr.lower():
+            console.print("[yellow]Make sure the issue number is correct[/yellow]")
+        else:
+            console.print(f"[dim]{e.stderr}[/dim]")
+        raise SystemExit(1)
+    except json.JSONDecodeError:
+        console.print(f"[red]Error: Invalid response from gh CLI[/red]")
+        raise SystemExit(1)
+
+
 def check_gitignore(repo_root: Path) -> bool:
     """Check if .claude-wt/worktrees is in .gitignore (local or global)"""
     patterns_to_check = [
@@ -175,6 +246,7 @@ def new(
     query: str = "",
     branch: str = "",
     name: str = "",
+    issue: str = "",
     dangerously_skip_permissions: bool = False,
 ):
     """Create a new worktree and launch Claude.
@@ -187,6 +259,8 @@ def new(
         Source branch to create worktree from
     name : str
         Name suffix for the worktree branch
+    issue : str
+        GitHub issue number to work on
     dangerously_skip_permissions : bool
         Skip permission checks in Claude (use with caution)
     """
@@ -232,9 +306,24 @@ This directory must be added to .gitignore to prevent committing worktree data.
     # Sync with remote if available (but don't fail if not)
     sync_with_remote(repo_root, source_branch)
 
-    # Generate worktree branch name
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    suffix = name or timestamp
+    # Handle issue parameter
+    if issue:
+        # Fetch issue details from GitHub
+        console.print(f"[dim]Fetching issue #{issue}...[/dim]")
+        issue_data = fetch_github_issue(issue)
+
+        # Create slug from issue title
+        title_slug = slugify(issue_data["title"])
+        suffix = f"issue-{issue}-{title_slug}"
+
+        # If no query provided, set default query to work on the issue
+        if not query:
+            query = f"Work on issue #{issue}"
+    else:
+        # Generate worktree branch name from name or timestamp
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        suffix = name or timestamp
+
     branch_name = f"cwt-{suffix}"
 
     # Create branch if needed
